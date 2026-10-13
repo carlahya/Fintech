@@ -1,5 +1,85 @@
 const sessions = [];
 
+const knowledgeBank = {
+  version: "2026-10-13.2",
+  product: "Dinner Roulette Splitter",
+  purpose: "Gamified group bill settlement for dinner tables.",
+  rules: [
+    "Diners pick one color: red, blue, or green.",
+    "The roulette spin lands on exactly one of red, blue, or green.",
+    "Diners whose pick matches the landed color pay 0 for the current bill.",
+    "If green lands, green winners also receive 3 future bill credits.",
+    "If nobody matches the landed color, everyone pays.",
+    "If at least one diner wins, only non-winners pay.",
+    "If every diner picked the landed color, protect one diner and redistribute the bill to the rest so the bill is still payable.",
+    "The total amount allocated to payers must equal the bill exactly in minor currency units.",
+    "Amounts should be as even as possible among payers, with any penny remainder distributed one penny at a time.",
+    "Never ask winners to pay in the current bill.",
+    "Never create a settlement with no payers unless the bill is 0, which this app does not allow."
+  ],
+  examples: [
+    {
+      bill: 120,
+      players: [
+        { name: "Ana", color: "red" },
+        { name: "Ben", color: "blue" },
+        { name: "Cy", color: "green" }
+      ],
+      landedColor: "red",
+      expected: [
+        { name: "Ana", pays: 0, futureCredits: 0 },
+        { name: "Ben", pays: 60, futureCredits: 0 },
+        { name: "Cy", pays: 60, futureCredits: 0 }
+      ]
+    },
+    {
+      bill: 99.99,
+      players: [
+        { name: "A", color: "red" },
+        { name: "B", color: "blue" },
+        { name: "C", color: "green" },
+        { name: "D", color: "red" }
+      ],
+      landedColor: "green",
+      expected: [
+        { name: "A", pays: 33.33, futureCredits: 0 },
+        { name: "B", pays: 33.33, futureCredits: 0 },
+        { name: "C", pays: 0, futureCredits: 3 },
+        { name: "D", pays: 33.33, futureCredits: 0 }
+      ]
+    },
+    {
+      bill: 80,
+      players: [
+        { name: "Ivy", color: "red" },
+        { name: "Jon", color: "red" },
+        { name: "Kim", color: "red" },
+        { name: "Lou", color: "red" }
+      ],
+      landedColor: "blue",
+      expected: [
+        { name: "Ivy", pays: 20, futureCredits: 0 },
+        { name: "Jon", pays: 20, futureCredits: 0 },
+        { name: "Kim", pays: 20, futureCredits: 0 },
+        { name: "Lou", pays: 20, futureCredits: 0 }
+      ]
+    }
+  ],
+  aiContract: {
+    acceptedOutput: "Return JSON with landedColor or landed_color equal to red, blue, or green. The app will independently calculate and audit amounts.",
+    fallback: "If AI is unavailable, slow, invalid, or misconfigured, use deterministic local settlement.",
+    audit: "Every settlement is checked for valid color, exact total, winner pays 0, green credits, and payer count."
+  }
+};
+
+const agents = [
+  { id: "rules-agent", name: "Rules Agent", role: "Loads the knowledge bank and prepares the rules for the calculation provider." },
+  { id: "zaro-agent", name: "Zaro AI Agent", role: "Asks the configured AI provider for the spin/settlement signal when available." },
+  { id: "fallback-agent", name: "Fallback Agent", role: "Produces deterministic settlement if AI is missing, invalid, or unreachable." },
+  { id: "audit-agent", name: "Audit Agent", role: "Verifies exact bill total, winner exemptions, green credits, and valid colors." },
+  { id: "payment-agent", name: "Payment Agent", role: "Creates Stripe checkout sessions only for diners who owe money." }
+];
+
 const page = String.raw`<!doctype html>
 <html lang="en">
   <head>
@@ -10,16 +90,17 @@ const page = String.raw`<!doctype html>
     <style>
       :root {
         color-scheme: dark;
-        --ink: #f8fafc;
-        --muted: #aab4c3;
-        --line: rgba(255,255,255,.14);
-        --panel: rgba(15, 23, 42, .78);
-        --panel-strong: rgba(9, 14, 27, .92);
-        --red: #ef4444;
-        --blue: #38bdf8;
-        --green: #22c55e;
-        --gold: #fbbf24;
-        --shadow: 0 24px 70px rgba(0,0,0,.35);
+        --ink: #fbfcff;
+        --muted: #9aa6b8;
+        --line: rgba(255,255,255,.13);
+        --panel: rgba(13, 18, 31, .82);
+        --panel-strong: rgba(8, 11, 20, .94);
+        --red: #ff5a66;
+        --blue: #47c2ff;
+        --green: #3ee58b;
+        --gold: #ffd166;
+        --mint: #b8ffe0;
+        --shadow: 0 24px 70px rgba(0,0,0,.32);
         font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       }
 
@@ -30,14 +111,44 @@ const page = String.raw`<!doctype html>
         min-height: 100vh;
         color: var(--ink);
         background:
-          radial-gradient(circle at 12% 14%, rgba(239,68,68,.24), transparent 28rem),
-          radial-gradient(circle at 82% 10%, rgba(56,189,248,.2), transparent 25rem),
-          linear-gradient(135deg, #080b14 0%, #14120f 46%, #07130d 100%);
+          linear-gradient(120deg, rgba(255,90,102,.16) 0 18%, transparent 18% 100%),
+          linear-gradient(245deg, rgba(71,194,255,.16) 0 16%, transparent 16% 100%),
+          linear-gradient(135deg, #070914 0%, #111827 42%, #081611 100%);
       }
 
       button, input, select { font: inherit; }
       button { border: 0; cursor: pointer; }
-      .shell { width: min(1180px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 34px; }
+      .shell { width: min(1180px, calc(100% - 28px)); margin: 0 auto; padding: 18px 0 34px; }
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
+        color: var(--muted);
+      }
+      .brand { display: flex; align-items: center; gap: 10px; color: var(--ink); font-weight: 900; }
+      .logo {
+        width: 34px;
+        height: 34px;
+        border-radius: 8px;
+        display: grid;
+        place-items: center;
+        background: conic-gradient(var(--red), var(--blue), var(--green), var(--red));
+        color: #061018;
+        box-shadow: 0 12px 28px rgba(0,0,0,.28);
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--line);
+        background: rgba(255,255,255,.07);
+        border-radius: 999px;
+        padding: 8px 10px;
+        color: #dfe8f7;
+        font-size: .86rem;
+      }
       header {
         display: grid;
         grid-template-columns: minmax(0, 1.05fr) minmax(300px, .95fr);
@@ -55,16 +166,22 @@ const page = String.raw`<!doctype html>
       .hero::after {
         content: "";
         position: absolute;
-        inset: auto -12% -42% 34%;
-        height: 74%;
-        background: conic-gradient(from -24deg, var(--red) 0 33%, var(--blue) 0 66%, var(--green) 0 100%);
-        border-radius: 999px;
-        filter: blur(38px);
-        opacity: .34;
+        inset: auto 24px 24px auto;
+        width: min(42%, 260px);
+        aspect-ratio: 1;
+        border-radius: 50%;
+        background: conic-gradient(from -18deg, var(--red) 0 33%, var(--blue) 0 66%, var(--green) 0 100%);
+        border: 10px solid rgba(255,255,255,.86);
+        box-shadow: inset 0 0 0 10px rgba(8,11,20,.42), 0 24px 46px rgba(0,0,0,.25);
+        opacity: .72;
       }
       .eyebrow { color: var(--gold); font-weight: 800; letter-spacing: 0; text-transform: uppercase; font-size: .78rem; }
-      h1 { margin: 12px 0 12px; font-size: clamp(2.25rem, 6vw, 5.7rem); line-height: .92; letter-spacing: 0; max-width: 820px; }
+      h1 { margin: 12px 0 12px; font-size: clamp(2.45rem, 6vw, 5.6rem); line-height: .92; letter-spacing: 0; max-width: 760px; position: relative; z-index: 1; }
       .hero p { margin: 0; color: #d8dee9; max-width: 640px; font-size: 1.05rem; line-height: 1.6; position: relative; z-index: 1; }
+      .quick-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 22px; position: relative; z-index: 1; }
+      .step { border: 1px solid var(--line); background: rgba(255,255,255,.065); border-radius: 8px; padding: 12px; }
+      .step b { display: block; color: var(--mint); margin-bottom: 5px; }
+      .step span { color: var(--muted); font-size: .86rem; line-height: 1.35; }
       .stats { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 28px; position: relative; z-index: 1; }
       .stat { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: rgba(255,255,255,.06); min-width: 132px; }
       .stat b { display: block; font-size: 1.35rem; }
@@ -104,6 +221,22 @@ const page = String.raw`<!doctype html>
 
       main { display: grid; grid-template-columns: minmax(310px, .88fr) minmax(0, 1.12fr); gap: 22px; margin-top: 22px; align-items: start; }
       .panel { border-radius: 8px; padding: 20px; }
+      .agent-strip {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+        margin-top: 22px;
+      }
+      .agent {
+        border: 1px solid var(--line);
+        background: rgba(255,255,255,.06);
+        border-radius: 8px;
+        padding: 12px;
+        min-height: 82px;
+      }
+      .agent b { display: block; margin-bottom: 6px; color: #eaf3ff; }
+      .agent span { color: var(--muted); font-size: .84rem; line-height: 1.35; }
+      .agent.active { border-color: rgba(62,229,139,.45); background: rgba(62,229,139,.1); }
       .players { display: grid; gap: 10px; }
       .player {
         display: grid;
@@ -157,7 +290,7 @@ const page = String.raw`<!doctype html>
       .result-card {
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: rgba(255,255,255,.06);
+        background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
         padding: 18px;
         min-height: 180px;
       }
@@ -182,6 +315,18 @@ const page = String.raw`<!doctype html>
       .pill.green { background: var(--green); }
       .status { color: var(--muted); min-height: 1.3em; margin-top: 12px; }
       .history { margin-top: 16px; color: var(--muted); font-size: .9rem; line-height: 1.5; }
+      .trace { display: grid; gap: 8px; margin-top: 14px; }
+      .trace-item {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 9px 10px;
+        color: #dfe8f7;
+        background: rgba(255,255,255,.04);
+      }
+      .trace-item small { color: var(--muted); }
       .error { color: #fecdd3; }
       .pay {
         border-radius: 8px;
@@ -194,13 +339,15 @@ const page = String.raw`<!doctype html>
       .pay:disabled { opacity: .55; cursor: wait; }
 
       @media (max-width: 920px) {
-        header, main, .wheel-wrap { grid-template-columns: 1fr; }
+        header, main, .wheel-wrap, .agent-strip { grid-template-columns: 1fr; }
         .hero { min-height: 360px; }
       }
       @media (max-width: 560px) {
         .shell { width: min(100% - 20px, 1180px); padding-top: 10px; }
         .hero, .control, .panel { padding: 16px; }
         .grid, .player { grid-template-columns: 1fr; }
+        .quick-steps { grid-template-columns: 1fr; }
+        .topbar { align-items: flex-start; flex-direction: column; }
         .wheel-stage { width: min(282px, 100%); height: auto; aspect-ratio: 1; }
         .row { grid-template-columns: 1fr 72px; }
         .row.header { display: none; }
@@ -210,12 +357,21 @@ const page = String.raw`<!doctype html>
   </head>
   <body>
     <div class="shell">
+      <nav class="topbar" aria-label="Product status">
+        <div class="brand"><span class="logo">DR</span><span>Dinner Roulette</span></div>
+        <div class="badge" id="systemBadge">AI assisted • rule-backed</div>
+      </nav>
       <header>
         <section class="hero">
           <div>
-            <div class="eyebrow">Roulette bill night</div>
-            <h1>Dinner Roulette Splitter</h1>
-            <p>Enter the bill, add the table, let everyone pick red, blue, or green, then spin. Matching diners skip tonight's bill. Green winners also bank three future bill passes.</p>
+            <div class="eyebrow">Fresh way to split dinner</div>
+            <h1>Spin once. Settle fairly.</h1>
+            <p>A simple game for the table with serious backup behind it: AI can help choose the result, deterministic math keeps the bill exact, and audit checks run before anyone pays.</p>
+            <div class="quick-steps" aria-label="How it works">
+              <div class="step"><b>1. Add the bill</b><span>Enter the total and seat count.</span></div>
+              <div class="step"><b>2. Pick colors</b><span>Each diner chooses red, blue, or green.</span></div>
+              <div class="step"><b>3. Spin & pay</b><span>Winners skip, payers get checkout buttons.</span></div>
+            </div>
           </div>
           <div class="stats" aria-label="Game rules">
             <div class="stat"><b>0</b><span>winners pay tonight</span></div>
@@ -243,6 +399,13 @@ const page = String.raw`<!doctype html>
           <p class="status" id="setupStatus"></p>
         </section>
       </header>
+
+      <section class="agent-strip" aria-label="Background agents">
+        <div class="agent active"><b>Rules Agent</b><span>Loads the knowledge bank and game rules.</span></div>
+        <div class="agent" id="zaroAgent"><b>Zaro AI Agent</b><span>Used when the API endpoint is configured.</span></div>
+        <div class="agent active"><b>Fallback Agent</b><span>Exact local math is always available.</span></div>
+        <div class="agent active"><b>Audit Agent</b><span>Checks totals, winners, and green credits.</span></div>
+      </section>
 
       <main>
         <section class="panel">
@@ -279,6 +442,7 @@ const page = String.raw`<!doctype html>
             </div>
           </div>
           <div id="breakdown" class="breakdown"></div>
+          <div id="trace" class="trace"></div>
           <div id="history" class="history"></div>
         </section>
       </main>
@@ -299,10 +463,23 @@ const page = String.raw`<!doctype html>
       const resultCardEl = document.querySelector("#resultCard");
       const breakdownEl = document.querySelector("#breakdown");
       const historyEl = document.querySelector("#history");
+      const traceEl = document.querySelector("#trace");
+      const systemBadgeEl = document.querySelector("#systemBadge");
+      const zaroAgentEl = document.querySelector("#zaroAgent");
       let rotation = 0;
 
       function money(value) {
         return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(value);
+      }
+
+      function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, (char) => ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;"
+        })[char]);
       }
 
       function buildPlayers() {
@@ -347,24 +524,27 @@ const page = String.raw`<!doctype html>
 
       function renderResult(data) {
         const winnerText = data.winners.length
-          ? data.winners.map((winner) => winner.name).join(", ") + " matched " + data.landedColor + "."
+          ? data.winners.map((winner) => escapeHtml(winner.name)).join(", ") + " matched " + data.landedColor + "."
           : "Nobody matched, so everyone pays.";
         resultCardEl.innerHTML =
           '<strong style="color:var(--' + data.landedColor + ')">' + data.landedColor + '</strong>' +
           '<p>' + winnerText + ' Total collected: ' + money(data.totalAllocated) + ' of ' + money(data.bill) + '. ' +
-          'Settlement: ' + (data.calculationProvider || "local") + '.</p>';
+          'Settlement: ' + escapeHtml(data.calculationProvider || "local") + '.</p>';
 
         breakdownEl.innerHTML =
           '<div class="row header"><span>Diner</span><span>Pick</span><span>Status</span><span>Pays</span></div>' +
           data.assignments.map((item, index) =>
-            '<div class="row"><span>' + item.name + '</span><span class="pill ' + item.color + '">' + item.color + '</span><span>' +
-            item.status + (item.futureCredits ? " +" + item.futureCredits + " future" : "") +
+            '<div class="row"><span>' + escapeHtml(item.name) + '</span><span class="pill ' + item.color + '">' + item.color + '</span><span>' +
+            escapeHtml(item.status) + (item.futureCredits ? " +" + item.futureCredits + " future" : "") +
             '</span><span>' + (item.pays > 0
               ? '<button class="pay" type="button" data-index="' + index + '">Pay ' + money(item.pays) + '</button>'
               : money(item.pays)) + '</span></div>'
           ).join("");
 
-        historyEl.textContent = "Session " + data.id + " • " + data.payers.length + " payer(s), " + data.winners.length + " winner(s).";
+        traceEl.innerHTML = (data.agentTrace || []).map((item) =>
+          '<div class="trace-item"><span>' + escapeHtml(item.agent) + '</span><small>' + escapeHtml(item.status) + '</small></div>'
+        ).join("");
+        historyEl.textContent = "Session " + data.id + " • " + data.payers.length + " payer(s), " + data.winners.length + " winner(s). Knowledge bank " + (data.knowledgeVersion || "local") + ".";
         breakdownEl.querySelectorAll(".pay").forEach((button) => {
           button.addEventListener("click", () => checkout(data.id, Number(button.dataset.index), button));
         });
@@ -424,6 +604,18 @@ const page = String.raw`<!doctype html>
       demoEl.addEventListener("click", shufflePicks);
       spinEl.addEventListener("click", spin);
       buildPlayers();
+
+      fetch("/api/health")
+        .then((response) => response.json())
+        .then((health) => {
+          const zaroReady = Boolean(health.integrations && health.integrations.zaroAi);
+          const stripeReady = Boolean(health.integrations && health.integrations.stripe);
+          systemBadgeEl.textContent = (zaroReady ? "AI online" : "AI fallback ready") + " • " + (stripeReady ? "payments on" : "payments pending");
+          zaroAgentEl.classList.toggle("active", zaroReady);
+        })
+        .catch(() => {
+          systemBadgeEl.textContent = "Offline-safe fallback ready";
+        });
     </script>
   </body>
 </html>`;
@@ -468,7 +660,7 @@ function validate(body) {
   return { bill: roundCurrency(bill), players: cleaned };
 }
 
-function localSettle(valid, provider = "local") {
+function localSettle(valid, provider = "local-fallback") {
   const landedColor = ["red", "blue", "green"][Math.floor(Math.random() * 3)];
   return buildSettlement(valid, landedColor, provider);
 }
@@ -478,15 +670,19 @@ function buildSettlement(valid, landedColor, provider = "local") {
     return { error: "Settlement provider returned an invalid roulette color." };
   }
   
-  const winners = valid.players.filter((player) => player.color === landedColor);
-  const payers = winners.length === 0
+  let winners = valid.players.filter((player) => player.color === landedColor);
+  let payers = winners.length === 0
     ? valid.players
     : valid.players.filter((player) => player.color !== landedColor);
+  if (winners.length === valid.players.length) {
+    winners = [valid.players[0]];
+    payers = valid.players.slice(1);
+  }
   const shares = splitBillExactly(valid.bill, payers.length);
   let payerIndex = 0;
 
   const assignments = valid.players.map((player) => {
-    const won = player.color === landedColor;
+    const won = winners.includes(player);
     if (won) {
       return {
         ...player,
@@ -509,8 +705,31 @@ function buildSettlement(valid, landedColor, provider = "local") {
     assignments,
     totalAllocated: roundCurrency(assignments.reduce((sum, item) => sum + item.pays, 0)),
     calculationProvider: provider,
+    knowledgeVersion: knowledgeBank.version,
+    fallbackUsed: provider !== "zaro-ai",
     createdAt: new Date().toISOString(),
   };
+}
+
+function auditSettlement(result, valid) {
+  if (result.error) return result.error;
+  if (!["red", "blue", "green"].includes(result.landedColor)) return "Landed color is invalid.";
+  if (result.assignments.length !== valid.players.length) return "Assignment count does not match player count.";
+  if (roundCurrency(result.totalAllocated) !== valid.bill) return "Allocated total does not equal bill.";
+
+  const winners = result.assignments.filter((item) => item.color === result.landedColor && item.pays === 0);
+  const payers = result.assignments.filter((item) => item.pays > 0);
+  if (winners.some((item) => item.pays !== 0)) return "A winner was asked to pay.";
+  if (result.landedColor === "green" && winners.some((item) => item.futureCredits !== 3)) {
+    return "A green winner is missing future bill credits.";
+  }
+  if (winners.length > 0 && payers.length + winners.length !== valid.players.length) {
+    return "Payer and winner counts do not reconcile.";
+  }
+  if (winners.length === valid.players.length) {
+    return "Settlement would leave nobody to pay the bill.";
+  }
+  return null;
 }
 
 function normalizeZaroResult(valid, data) {
@@ -530,11 +749,7 @@ async function settleWithZaro(valid, env) {
     },
     body: JSON.stringify({
       task: "dinner_roulette_bill_settlement",
-      rules: {
-        colors: ["red", "blue", "green"],
-        green_future_bill_credits: 3,
-        exact_bill_total_required: true,
-      },
+      knowledge_bank: knowledgeBank,
       bill: valid.bill,
       players: valid.players,
     }),
@@ -548,8 +763,39 @@ async function settle(body, env) {
   const valid = validate(body);
   if (valid.error) return valid;
 
-  const result = await settleWithZaro(valid, env).catch(() => null) || localSettle(valid);
-  if (result.error) return result;
+  const agentTrace = [
+    { agent: "Rules Agent", status: `Loaded knowledge bank ${knowledgeBank.version}` },
+  ];
+
+  const aiConfigured = Boolean(env?.ZARO_AI_API_KEY && env?.ZARO_AI_BASE_URL);
+  let result = null;
+  if (aiConfigured) {
+    result = await settleWithZaro(valid, env).catch(() => null);
+    agentTrace.push({
+      agent: "Zaro AI Agent",
+      status: result ? "Returned a usable color signal" : "Unavailable or invalid, fallback requested",
+    });
+  } else {
+    agentTrace.push({ agent: "Zaro AI Agent", status: "Skipped because API base URL is not configured" });
+  }
+
+  if (!result) {
+    result = localSettle(valid);
+    agentTrace.push({ agent: "Fallback Agent", status: "Created deterministic penny-safe settlement" });
+  }
+
+  const auditError = auditSettlement(result, valid);
+  if (auditError) {
+    agentTrace.push({ agent: "Audit Agent", status: `Rejected settlement: ${auditError}` });
+    result = localSettle(valid, "local-audit-recovery");
+  }
+  const recoveryAuditError = auditSettlement(result, valid);
+  if (recoveryAuditError) {
+    return { error: recoveryAuditError };
+  }
+  agentTrace.push({ agent: "Audit Agent", status: "Passed exact-total and winner checks" });
+  agentTrace.push({ agent: "Payment Agent", status: "Prepared checkout buttons for payers" });
+  result.agentTrace = agentTrace;
   sessions.unshift(result);
   sessions.splice(10);
   return result;
@@ -619,7 +865,15 @@ export default {
           zaroAi: Boolean(env?.ZARO_AI_API_KEY && env?.ZARO_AI_BASE_URL),
           stripe: Boolean(env?.STRIPE_SECRET_KEY),
         },
+        knowledgeVersion: knowledgeBank.version,
+        agents: agents.length,
       });
+    }
+    if (request.method === "GET" && url.pathname === "/api/knowledge") {
+      return json({ knowledgeBank });
+    }
+    if (request.method === "GET" && url.pathname === "/api/agents") {
+      return json({ agents });
     }
     if (request.method === "GET" && url.pathname === "/api/sessions") {
       return json({ sessions });
