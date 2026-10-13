@@ -5,8 +5,8 @@ const knowledgeBank = {
   product: "Dinner Roulette Splitter",
   purpose: "Gamified group bill settlement for dinner tables.",
   rules: [
-    "Diners pick one color: red, blue, or green.",
-    "The roulette spin lands on exactly one of red, blue, or green.",
+    "Diners pick one color: red, black, or green.",
+    "The roulette spin lands on exactly one of red, black, or green.",
     "Diners whose pick matches the landed color pay 0 for the current bill.",
     "If green lands, green winners also receive 3 future bill credits.",
     "If nobody matches the landed color, everyone pays.",
@@ -22,7 +22,7 @@ const knowledgeBank = {
       bill: 120,
       players: [
         { name: "Ana", color: "red" },
-        { name: "Ben", color: "blue" },
+        { name: "Ben", color: "black" },
         { name: "Cy", color: "green" }
       ],
       landedColor: "red",
@@ -36,7 +36,7 @@ const knowledgeBank = {
       bill: 99.99,
       players: [
         { name: "A", color: "red" },
-        { name: "B", color: "blue" },
+        { name: "B", color: "black" },
         { name: "C", color: "green" },
         { name: "D", color: "red" }
       ],
@@ -56,7 +56,7 @@ const knowledgeBank = {
         { name: "Kim", color: "red" },
         { name: "Lou", color: "red" }
       ],
-      landedColor: "blue",
+      landedColor: "black",
       expected: [
         { name: "Ivy", pays: 20, futureCredits: 0 },
         { name: "Jon", pays: 20, futureCredits: 0 },
@@ -66,7 +66,7 @@ const knowledgeBank = {
     }
   ],
   aiContract: {
-    acceptedOutput: "Return JSON with landedColor or landed_color equal to red, blue, or green. The app will independently calculate and audit amounts.",
+    acceptedOutput: "Return JSON with landedColor or landed_color equal to red, black, or green. The app will independently calculate and audit amounts.",
     fallback: "If AI is unavailable, slow, invalid, or misconfigured, use deterministic local settlement.",
     audit: "Every settlement is checked for valid color, exact total, winner pays 0, green credits, and payer count."
   }
@@ -96,7 +96,7 @@ const page = String.raw`<!doctype html>
         --panel: rgba(13, 18, 31, .82);
         --panel-strong: rgba(8, 11, 20, .94);
         --red: #ff5a66;
-        --blue: #47c2ff;
+        --black: #10131a;
         --green: #3ee58b;
         --gold: #ffd166;
         --mint: #b8ffe0;
@@ -134,7 +134,7 @@ const page = String.raw`<!doctype html>
         border-radius: 8px;
         display: grid;
         place-items: center;
-        background: conic-gradient(var(--red), var(--blue), var(--green), var(--red));
+        background: conic-gradient(var(--red), var(--black), var(--green), var(--red));
         color: #061018;
         box-shadow: 0 12px 28px rgba(0,0,0,.28);
       }
@@ -170,7 +170,7 @@ const page = String.raw`<!doctype html>
         width: min(42%, 260px);
         aspect-ratio: 1;
         border-radius: 50%;
-        background: conic-gradient(from -18deg, var(--red) 0 33%, var(--blue) 0 66%, var(--green) 0 100%);
+        background: conic-gradient(from -18deg, var(--red) 0 33%, var(--black) 0 66%, var(--green) 0 100%);
         border: 10px solid rgba(255,255,255,.86);
         box-shadow: inset 0 0 0 10px rgba(8,11,20,.42), 0 24px 46px rgba(0,0,0,.25);
         opacity: .72;
@@ -248,7 +248,7 @@ const page = String.raw`<!doctype html>
         padding: 12px;
         background: rgba(255,255,255,.05);
       }
-      .wheel-wrap { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 24px; align-items: center; }
+      .casino-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 24px; align-items: stretch; }
       .wheel-stage { position: relative; width: 300px; height: 300px; margin: 0 auto; }
       .pointer {
         position: absolute;
@@ -268,7 +268,7 @@ const page = String.raw`<!doctype html>
         height: 100%;
         border-radius: 50%;
         border: 12px solid rgba(255,255,255,.92);
-        background: conic-gradient(var(--red) 0 120deg, var(--blue) 120deg 240deg, var(--green) 240deg 360deg);
+        background: conic-gradient(var(--red) 0 114deg, var(--black) 114deg 228deg, var(--green) 228deg 246deg, var(--red) 246deg 303deg, var(--black) 303deg 360deg);
         box-shadow: inset 0 0 0 8px rgba(2,6,23,.55), 0 26px 70px rgba(0,0,0,.45);
         transform: rotate(0deg);
         transition: transform 2.6s cubic-bezier(.13,.82,.13,1);
@@ -284,6 +284,46 @@ const page = String.raw`<!doctype html>
         background: #0f172a;
         border: 8px solid rgba(255,255,255,.9);
       }
+      .roulette-felt {
+        min-height: 300px;
+        border-radius: 8px;
+        border: 2px solid rgba(255,255,255,.22);
+        background:
+          linear-gradient(90deg, rgba(255,255,255,.06) 1px, transparent 1px),
+          linear-gradient(0deg, rgba(255,255,255,.06) 1px, transparent 1px),
+          linear-gradient(135deg, #0d6a45, #06452f);
+        background-size: 64px 64px, 64px 64px, auto;
+        padding: 14px;
+        box-shadow: inset 0 0 0 5px rgba(255,255,255,.05), inset 0 0 46px rgba(0,0,0,.34);
+      }
+      .roulette-felt + .result-card { margin-top: 14px; }
+      .felt-title { display: flex; justify-content: space-between; gap: 10px; align-items: center; color: #eafff6; font-weight: 900; margin-bottom: 12px; }
+      .bet-grid {
+        display: grid;
+        grid-template-columns: 80px repeat(6, minmax(38px, 1fr));
+        grid-auto-rows: minmax(44px, auto);
+        gap: 6px;
+      }
+      .zero-cell, .number-cell, .outside-bet {
+        display: grid;
+        place-items: center;
+        border: 1px solid rgba(255,255,255,.42);
+        border-radius: 4px;
+        color: #fff;
+        font-weight: 900;
+        text-transform: uppercase;
+        text-align: center;
+        min-height: 44px;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,.2);
+      }
+      .zero-cell { grid-row: span 3; background: var(--green); color: #04130b; }
+      .number-cell.red, .outside-bet.red { background: linear-gradient(180deg, #f0525f, #a70f1f); }
+      .number-cell.black, .outside-bet.black { background: linear-gradient(180deg, #202632, #05070b); }
+      .outside-bet.green { background: linear-gradient(180deg, #3ee58b, #087a42); color: #04130b; }
+      .outside-bet { min-height: 54px; font-size: clamp(.78rem, 1.9vw, 1rem); padding: 8px; }
+      .outside-bet.red { grid-column: 1 / span 2; }
+      .outside-bet.black { grid-column: 3 / span 3; }
+      .outside-bet.green { grid-column: 6 / span 2; }
       .legend { display: grid; gap: 10px; margin-top: 18px; }
       .chip { display: inline-flex; align-items: center; gap: 9px; color: var(--muted); }
       .dot { width: 13px; height: 13px; border-radius: 50%; display: inline-block; }
@@ -311,7 +351,7 @@ const page = String.raw`<!doctype html>
       .row.header { color: var(--muted); font-size: .78rem; text-transform: uppercase; font-weight: 800; background: transparent; }
       .pill { border-radius: 999px; padding: 5px 8px; font-size: .78rem; font-weight: 800; text-align: center; color: #071018; text-transform: capitalize; }
       .pill.red { background: var(--red); }
-      .pill.blue { background: var(--blue); }
+      .pill.black { background: #111827; color: #f8fafc; border: 1px solid rgba(255,255,255,.28); }
       .pill.green { background: var(--green); }
       .status { color: var(--muted); min-height: 1.3em; margin-top: 12px; }
       .history { margin-top: 16px; color: var(--muted); font-size: .9rem; line-height: 1.5; }
@@ -339,7 +379,7 @@ const page = String.raw`<!doctype html>
       .pay:disabled { opacity: .55; cursor: wait; }
 
       @media (max-width: 920px) {
-        header, main, .wheel-wrap, .agent-strip { grid-template-columns: 1fr; }
+        header, main, .casino-layout, .agent-strip { grid-template-columns: 1fr; }
         .hero { min-height: 360px; }
       }
       @media (max-width: 560px) {
@@ -349,6 +389,9 @@ const page = String.raw`<!doctype html>
         .quick-steps { grid-template-columns: 1fr; }
         .topbar { align-items: flex-start; flex-direction: column; }
         .wheel-stage { width: min(282px, 100%); height: auto; aspect-ratio: 1; }
+        .bet-grid { grid-template-columns: 56px repeat(3, minmax(44px, 1fr)); }
+        .zero-cell { grid-row: span 2; }
+        .outside-bet.red, .outside-bet.black, .outside-bet.green { grid-column: auto / span 2; }
         .row { grid-template-columns: 1fr 72px; }
         .row.header { display: none; }
         .row span:nth-child(3), .row span:nth-child(4) { color: var(--muted); font-size: .86rem; }
@@ -369,7 +412,7 @@ const page = String.raw`<!doctype html>
             <p>A simple game for the table with serious backup behind it: AI can help choose the result, deterministic math keeps the bill exact, and audit checks run before anyone pays.</p>
             <div class="quick-steps" aria-label="How it works">
               <div class="step"><b>1. Add the bill</b><span>Enter the total and seat count.</span></div>
-              <div class="step"><b>2. Pick colors</b><span>Each diner chooses red, blue, or green.</span></div>
+              <div class="step"><b>2. Pick bets</b><span>Each diner chooses red, black, or green.</span></div>
               <div class="step"><b>3. Spin & pay</b><span>Winners skip, payers get checkout buttons.</span></div>
             </div>
           </div>
@@ -418,10 +461,10 @@ const page = String.raw`<!doctype html>
 
         <section class="panel">
           <div class="section-title">
-            <h2>Spin table</h2>
+            <h2>Roulette table</h2>
             <button class="primary" id="spin" type="button">Spin now</button>
           </div>
-          <div class="wheel-wrap">
+          <div class="casino-layout">
             <div>
               <div class="wheel-stage" aria-label="Roulette wheel">
                 <div class="pointer"></div>
@@ -429,11 +472,32 @@ const page = String.raw`<!doctype html>
               </div>
               <div class="legend">
                 <span class="chip"><span class="dot" style="background:var(--red)"></span>Red: matching diners pay 0</span>
-                <span class="chip"><span class="dot" style="background:var(--blue)"></span>Blue: matching diners pay 0</span>
+                <span class="chip"><span class="dot" style="background:var(--black); border:1px solid rgba(255,255,255,.45)"></span>Black: matching diners pay 0</span>
                 <span class="chip"><span class="dot" style="background:var(--green)"></span>Green: pay 0 plus 3 future passes</span>
               </div>
             </div>
             <div>
+              <div class="roulette-felt" aria-label="Casino roulette betting table">
+                <div class="felt-title"><span>Place color bets</span><span>0-12 demo layout</span></div>
+                <div class="bet-grid">
+                  <div class="zero-cell">0</div>
+                  <div class="number-cell red">1</div>
+                  <div class="number-cell black">2</div>
+                  <div class="number-cell red">3</div>
+                  <div class="number-cell black">4</div>
+                  <div class="number-cell red">5</div>
+                  <div class="number-cell black">6</div>
+                  <div class="number-cell red">7</div>
+                  <div class="number-cell black">8</div>
+                  <div class="number-cell red">9</div>
+                  <div class="number-cell black">10</div>
+                  <div class="number-cell red">11</div>
+                  <div class="number-cell black">12</div>
+                  <div class="outside-bet red">Red</div>
+                  <div class="outside-bet black">Black</div>
+                  <div class="outside-bet green">Green</div>
+                </div>
+              </div>
               <div class="result-card" id="resultCard">
                 <strong>Ready</strong>
                 <p>Add the dinner table and spin. If nobody matches the color, everyone splits the bill evenly.</p>
@@ -449,7 +513,7 @@ const page = String.raw`<!doctype html>
     </div>
 
     <script>
-      const colors = ["red", "blue", "green"];
+      const colors = ["red", "black", "green"];
       const playersEl = document.querySelector("#players");
       const billEl = document.querySelector("#bill");
       const peopleEl = document.querySelector("#people");
@@ -491,12 +555,12 @@ const page = String.raw`<!doctype html>
           row.className = "player";
           row.innerHTML =
             '<label>Name <input class="name" value="Diner ' + (index + 1) + '" maxlength="24"></label>' +
-            '<label>Pick <select class="pick"><option value="red">Red</option><option value="blue">Blue</option><option value="green">Green</option></select></label>';
+            '<label>Bet <select class="pick"><option value="red">Red</option><option value="black">Black</option><option value="green">Green</option></select></label>';
           row.querySelector(".pick").value = colors[index % colors.length];
           playersEl.appendChild(row);
         }
         tableMetaEl.textContent = count + " seated";
-        statusEl.textContent = "Table is ready. Pick colors, then spin.";
+        statusEl.textContent = "Table is ready. Pick bets, then spin.";
       }
 
       function shufflePicks() {
@@ -517,7 +581,7 @@ const page = String.raw`<!doctype html>
       }
 
       function animateWheel(color) {
-        const target = { red: 60, blue: 180, green: 300 }[color];
+        const target = { red: 58, black: 178, green: 237 }[color];
         rotation += 1440 + (360 - target);
         wheelEl.style.transform = "rotate(" + rotation + "deg)";
       }
@@ -654,19 +718,19 @@ function validate(body) {
     name: String(player?.name || `Diner ${index + 1}`).trim().slice(0, 24) || `Diner ${index + 1}`,
     color: String(player?.color || "").toLowerCase(),
   }));
-  if (cleaned.some((player) => !["red", "blue", "green"].includes(player.color))) {
-    return { error: "Every diner must pick red, blue, or green." };
+  if (cleaned.some((player) => !["red", "black", "green"].includes(player.color))) {
+    return { error: "Every diner must pick red, black, or green." };
   }
   return { bill: roundCurrency(bill), players: cleaned };
 }
 
 function localSettle(valid, provider = "local-fallback") {
-  const landedColor = ["red", "blue", "green"][Math.floor(Math.random() * 3)];
+  const landedColor = ["red", "black", "green"][Math.floor(Math.random() * 3)];
   return buildSettlement(valid, landedColor, provider);
 }
 
 function buildSettlement(valid, landedColor, provider = "local") {
-  if (!["red", "blue", "green"].includes(landedColor)) {
+  if (!["red", "black", "green"].includes(landedColor)) {
     return { error: "Settlement provider returned an invalid roulette color." };
   }
   
@@ -713,7 +777,7 @@ function buildSettlement(valid, landedColor, provider = "local") {
 
 function auditSettlement(result, valid) {
   if (result.error) return result.error;
-  if (!["red", "blue", "green"].includes(result.landedColor)) return "Landed color is invalid.";
+  if (!["red", "black", "green"].includes(result.landedColor)) return "Landed color is invalid.";
   if (result.assignments.length !== valid.players.length) return "Assignment count does not match player count.";
   if (roundCurrency(result.totalAllocated) !== valid.bill) return "Allocated total does not equal bill.";
 

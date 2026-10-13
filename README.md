@@ -1,6 +1,6 @@
 # Dinner Roulette Splitter
 
-A full-stack roulette-style bill splitter for dinner groups. The frontend collects the bill, diners, and color picks. The Worker backend spins red, blue, or green and returns an exact settlement.
+A full-stack roulette-style bill splitter for dinner groups. The frontend collects the bill, diners, and casino-style red, black, or green bets. The Worker backend spins and returns an exact settlement.
 
 ## Rules
 
