@@ -166,7 +166,7 @@ const page = String.raw`<!doctype html>
       .breakdown { display: grid; gap: 10px; margin-top: 16px; }
       .row {
         display: grid;
-        grid-template-columns: minmax(90px, 1fr) 88px 95px 86px;
+        grid-template-columns: minmax(90px, 1fr) 88px 95px 132px;
         gap: 8px;
         align-items: center;
         border: 1px solid var(--line);
@@ -183,6 +183,15 @@ const page = String.raw`<!doctype html>
       .status { color: var(--muted); min-height: 1.3em; margin-top: 12px; }
       .history { margin-top: 16px; color: var(--muted); font-size: .9rem; line-height: 1.5; }
       .error { color: #fecdd3; }
+      .pay {
+        border-radius: 8px;
+        background: rgba(34,197,94,.16);
+        border: 1px solid rgba(34,197,94,.34);
+        color: #bbf7d0;
+        padding: 8px 10px;
+        font-weight: 800;
+      }
+      .pay:disabled { opacity: .55; cursor: wait; }
 
       @media (max-width: 920px) {
         header, main, .wheel-wrap { grid-template-columns: 1fr; }
@@ -342,17 +351,48 @@ const page = String.raw`<!doctype html>
           : "Nobody matched, so everyone pays.";
         resultCardEl.innerHTML =
           '<strong style="color:var(--' + data.landedColor + ')">' + data.landedColor + '</strong>' +
-          '<p>' + winnerText + ' Total collected: ' + money(data.totalAllocated) + ' of ' + money(data.bill) + '.</p>';
+          '<p>' + winnerText + ' Total collected: ' + money(data.totalAllocated) + ' of ' + money(data.bill) + '. ' +
+          'Settlement: ' + (data.calculationProvider || "local") + '.</p>';
 
         breakdownEl.innerHTML =
           '<div class="row header"><span>Diner</span><span>Pick</span><span>Status</span><span>Pays</span></div>' +
-          data.assignments.map((item) =>
+          data.assignments.map((item, index) =>
             '<div class="row"><span>' + item.name + '</span><span class="pill ' + item.color + '">' + item.color + '</span><span>' +
             item.status + (item.futureCredits ? " +" + item.futureCredits + " future" : "") +
-            '</span><span>' + money(item.pays) + '</span></div>'
+            '</span><span>' + (item.pays > 0
+              ? '<button class="pay" type="button" data-index="' + index + '">Pay ' + money(item.pays) + '</button>'
+              : money(item.pays)) + '</span></div>'
           ).join("");
 
         historyEl.textContent = "Session " + data.id + " • " + data.payers.length + " payer(s), " + data.winners.length + " winner(s).";
+        breakdownEl.querySelectorAll(".pay").forEach((button) => {
+          button.addEventListener("click", () => checkout(data.id, Number(button.dataset.index), button));
+        });
+      }
+
+      async function checkout(sessionId, assignmentIndex, button) {
+        button.disabled = true;
+        apiStatusEl.textContent = "Creating Stripe checkout...";
+        apiStatusEl.className = "status";
+        try {
+          const response = await fetch("/api/checkout", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ sessionId, assignmentIndex })
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "Could not create checkout.");
+          if (data.url) {
+            window.location.href = data.url;
+          } else {
+            apiStatusEl.textContent = data.message || "Stripe is not configured for this environment.";
+            button.disabled = false;
+          }
+        } catch (error) {
+          apiStatusEl.textContent = error.message;
+          apiStatusEl.className = "status error";
+          button.disabled = false;
+        }
       }
 
       async function spin() {
@@ -428,17 +468,21 @@ function validate(body) {
   return { bill: roundCurrency(bill), players: cleaned };
 }
 
-function settle(body) {
-  const valid = validate(body);
-  if (valid.error) return valid;
-
+function localSettle(valid, provider = "local") {
   const landedColor = ["red", "blue", "green"][Math.floor(Math.random() * 3)];
+  return buildSettlement(valid, landedColor, provider);
+}
+
+function buildSettlement(valid, landedColor, provider = "local") {
+  if (!["red", "blue", "green"].includes(landedColor)) {
+    return { error: "Settlement provider returned an invalid roulette color." };
+  }
+  
   const winners = valid.players.filter((player) => player.color === landedColor);
   const payers = winners.length === 0
     ? valid.players
     : valid.players.filter((player) => player.color !== landedColor);
   const shares = splitBillExactly(valid.bill, payers.length);
-  const payerShares = new Map(payers.map((player, index) => [player.name + index, shares[index]]));
   let payerIndex = 0;
 
   const assignments = valid.players.map((player) => {
@@ -451,12 +495,12 @@ function settle(body) {
         futureCredits: landedColor === "green" ? 3 : 0,
       };
     }
-    const pays = payerShares.get(player.name + payerIndex) ?? shares[payerIndex] ?? 0;
+    const pays = shares[payerIndex] ?? 0;
     payerIndex += 1;
     return { ...player, pays, status: "pays", futureCredits: 0 };
   });
 
-  const result = {
+  return {
     id: crypto.randomUUID().slice(0, 8),
     bill: valid.bill,
     landedColor,
@@ -464,11 +508,90 @@ function settle(body) {
     payers: assignments.filter((item) => item.pays > 0),
     assignments,
     totalAllocated: roundCurrency(assignments.reduce((sum, item) => sum + item.pays, 0)),
+    calculationProvider: provider,
     createdAt: new Date().toISOString(),
   };
+}
+
+function normalizeZaroResult(valid, data) {
+  const landedColor = String(data?.landedColor || data?.landed_color || data?.color || "").toLowerCase();
+  if (!landedColor) return null;
+  return buildSettlement(valid, landedColor, "zaro-ai");
+}
+
+async function settleWithZaro(valid, env) {
+  if (!env?.ZARO_AI_API_KEY || !env?.ZARO_AI_BASE_URL) return null;
+
+  const response = await fetch(env.ZARO_AI_BASE_URL, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${env.ZARO_AI_API_KEY}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      task: "dinner_roulette_bill_settlement",
+      rules: {
+        colors: ["red", "blue", "green"],
+        green_future_bill_credits: 3,
+        exact_bill_total_required: true,
+      },
+      bill: valid.bill,
+      players: valid.players,
+    }),
+  });
+
+  if (!response.ok) return null;
+  return normalizeZaroResult(valid, await response.json());
+}
+
+async function settle(body, env) {
+  const valid = validate(body);
+  if (valid.error) return valid;
+
+  const result = await settleWithZaro(valid, env).catch(() => null) || localSettle(valid);
+  if (result.error) return result;
   sessions.unshift(result);
   sessions.splice(10);
   return result;
+}
+
+async function createStripeCheckout(body, request, env) {
+  const session = sessions.find((item) => item.id === body?.sessionId);
+  const assignment = session?.assignments?.[Number(body?.assignmentIndex)];
+  if (!session || !assignment || !assignment.pays) {
+    return { error: "Choose a valid payer from the latest settlement." };
+  }
+  if (!env?.STRIPE_SECRET_KEY) {
+    return { message: "Stripe secret key is not configured yet." };
+  }
+
+  const origin = new URL(request.url).origin;
+  const params = new URLSearchParams({
+    mode: "payment",
+    "line_items[0][quantity]": "1",
+    "line_items[0][price_data][currency]": "gbp",
+    "line_items[0][price_data][unit_amount]": String(Math.round(assignment.pays * 100)),
+    "line_items[0][price_data][product_data][name]": `Dinner Roulette share for ${assignment.name}`,
+    success_url: `${origin}/?paid=success&session=${encodeURIComponent(session.id)}`,
+    cancel_url: `${origin}/?paid=cancelled&session=${encodeURIComponent(session.id)}`,
+    "metadata[session_id]": session.id,
+    "metadata[payer_name]": assignment.name,
+  });
+
+  const response = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: params,
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    return { error: data?.error?.message || "Stripe checkout failed." };
+  }
+  return { url: data.url, checkoutSessionId: data.id };
 }
 
 async function readJson(request) {
@@ -489,13 +612,24 @@ export default {
       return new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
     }
     if (request.method === "GET" && url.pathname === "/api/health") {
-      return json({ ok: true, service: "dinner-roulette-splitter" });
+      return json({
+        ok: true,
+        service: "dinner-roulette-splitter",
+        integrations: {
+          zaroAi: Boolean(env?.ZARO_AI_API_KEY && env?.ZARO_AI_BASE_URL),
+          stripe: Boolean(env?.STRIPE_SECRET_KEY),
+        },
+      });
     }
     if (request.method === "GET" && url.pathname === "/api/sessions") {
       return json({ sessions });
     }
     if (request.method === "POST" && url.pathname === "/api/spin") {
-      const result = settle(await readJson(request));
+      const result = await settle(await readJson(request), env);
+      return result.error ? json(result, { status: 400 }) : json(result);
+    }
+    if (request.method === "POST" && url.pathname === "/api/checkout") {
+      const result = await createStripeCheckout(await readJson(request), request, env);
       return result.error ? json(result, { status: 400 }) : json(result);
     }
 

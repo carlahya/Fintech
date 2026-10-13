@@ -11,7 +11,7 @@ const server = createServer(async (req, res) => {
     duplex: "half",
   });
 
-  const response = await worker.fetch(request, {}, {});
+  const response = await worker.fetch(request, process.env, {});
   res.writeHead(response.status, Object.fromEntries(response.headers));
   if (response.body) {
     for await (const chunk of response.body) {
